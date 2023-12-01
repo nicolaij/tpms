@@ -103,7 +103,7 @@ void setup()
 
   uint8_t syncWord[] = {0x55, 0xAD};
   radio.setSyncWord(syncWord, 1);
-  
+
   /*
   SX1278::beginFSK(434.0, 4.8, 5.0, 125.0, 10, 16, false);
   SX127x::variablePacketLengthMode(SX127X_MAX_PACKET_LENGTH);
@@ -153,7 +153,7 @@ void setup()
 void loop()
 {
   int state;
-  byte byteArr[32];
+  byte byteArr[1024];
 
   if (millis() - t1 > timeout)
   {
@@ -238,22 +238,29 @@ void loop()
 
       // you can also read received data as byte array
 
-      state = radio.readData(byteArr, 32);
+      int len = 32;
 
+      len = radio.getPacketLength();
+      if (len > sizeof(byteArr))
+        len = sizeof(byteArr);
+
+      if (len == 0)
+        len = 32;
+
+      state = radio.readData(byteArr, len);
       // Serial.printf("[SX1278] freq: %f, dev: %f\n", freq[0], freqDev[0]);
       //  print RSSI (Received Signal Strength Indicator)
 
-
       if (state == RADIOLIB_ERR_NONE && (byteArr[0] != byteArr[1] || byteArr[0] != byteArr[7] || byteArr[0] != byteArr[15] || byteArr[0] != byteArr[23]))
       {
-        Serial.printf("[SX1278] freq: %f, dev: %f, bitrate: %f\n", freq[0], freqDev[0], radio.getDataRate());
+        Serial.printf("[SX1278] freq: %f, dev: %f, bitrate: %f\n", freq[0], freqDev[0], bitr[0]);
 
         // packet was successfully received
         Serial.println(F("[SX1278] Received packet!"));
 
         // print data of the packet
         Serial.print(F("[SX1278] Data:\t\t"));
-        for (int i = 0; i < sizeof(byteArr); i++)
+        for (int i = 0; i < len; i++)
         {
           Serial.printf("%02x ", byteArr[i]);
         }
@@ -282,8 +289,8 @@ void loop()
       else
       {
         // some other error occurred
-        //Serial.print(F("[SX1278] Failed, code "));
-        //Serial.println(state);
+        // Serial.print(F("[SX1278] Failed, code "));
+        // Serial.println(state);
       }
 
       // reception is done now
@@ -294,16 +301,16 @@ void loop()
     if (detectedFlag)
     {
       // LoRa preamble was detected
-      //Serial.print(F("[SX1278] Preamble detected, starting reception ... "));
+      // Serial.print(F("[SX1278] Preamble detected, starting reception ... "));
       state = radio.startReceive(0, RADIOLIB_SX127X_RXSINGLE);
       if (state == RADIOLIB_ERR_NONE)
       {
-        //Serial.println(F("success!"));
+        // Serial.println(F("success!"));
       }
       else
       {
-        //Serial.print(F("failed, code "));
-        //Serial.println(state);
+        // Serial.print(F("failed, code "));
+        // Serial.println(state);
       }
 
       // set the flag for ongoing reception
