@@ -7,5 +7,6 @@ Using a web interface, sensor id, pressure and temperature values ​​can be s
 ## Hardware:
 ESPHome supported microcontrollers and Lora transceiver.
 I use ESP32 S2 Mini board and Ra-02 module.
-<img width="1992" height="2122" alt="изображение" src="https://github.com/user-attachments/assets/a4253f6c-9dbd-443c-be66-5171901d1f5d" />
+<img width="402" height="329" alt="изображение" src="https://github.com/user-attachments/assets/2c198790-8e65-4fb3-b71c-cc33089f587c" />
+
 
