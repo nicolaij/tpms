@@ -1,3 +1,8 @@
+/* 
+*	Part ESPHome project https://github.com/nicolaij/tpms
+*   decode and encode TPMS RF data for Geely Coolray 2018- (SX11)
+*/
+
 #include <cstdint>
 #ifndef __TPMS_H__
 #define __TPMS_H__
