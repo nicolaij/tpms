@@ -1,0 +1,405 @@
+esphome:
+  name: tpmscc1101
+  includes:
+    tpms.h
+  platformio_options:
+    board_build.flash_mode: qio
+    board_build.f_cpu: 80000000L
+    board_build.f_flash: 80000000L
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP_BROWNOUT_DET_LVL_SEL_4: y #for c3 2.92V
+      CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_80: y
+      CONFIG_ESPTOOLPY_FLASHFREQ_80M: y
+      CONFIG_FLASHMODE_QIO: y
+
+wifi:
+  networks:
+#  - ssid: !secret wifi_ssid_home1 
+#    password: !secret wifi_password_home1
+#  - ssid: !secret wifi_ssid_my_home2
+#    password: !secret wifi_password_my_home2
+  ap:
+    ssid: "TPMS"
+    password: "12345678"
+  reboot_timeout: 0s
+
+logger:
+  hardware_uart: UART0
+
+# Enable Home Assistant API
+api:
+  reboot_timeout: 0s
+
+# Make sure you can upload new firmware OTA
+ota:
+  platform: esphome
+
+web_server:
+  port: 80
+  local: true
+  version: 3
+  sorting_groups:
+    - id: sorting_group1
+      name: "Out sensors"
+      sorting_weight: -10
+
+spi:
+  clk_pin: GPIO6
+  mosi_pin: GPIO1
+  miso_pin: GPIO5
+
+cc1101:
+  cs_pin: GPIO0
+  frequency: 433.96MHz
+  output_power: 2
+  data_rate: 5MHz
+  gdo0_pin: GPIO7  # Must match GDO0
+  modulation_type: 2-FSK
+  fsk_deviation: 40kHz
+  filter_bandwidth: 125kHz
+  symbol_rate: 19200
+  packet_mode: true
+  manchester: false
+  crc_enable: false
+  sync0: 0x56
+  sync1: 0x55
+  num_preamble: 2 #(4 bytes)
+  packet_length: 16
+  carrier_sense_above_threshold: true
+  carrier_sense_rel_thr: +6dB
+  on_packet:
+    then:
+      - lambda: |-
+          ESP_LOGD("cc1101", "packet %s rssi %.1f dBm lqi %u", format_hex(x).c_str(), rssi, lqi);
+          TPMS::tpms td;
+          static TPMS::tpms pretd;
+          if (TPMS::demanchester((char*)td.data, (const char *)x.data(), 8 * 8) == 8)
+          {
+            if (TPMS::Crc8Block(0,td.data, 7) == td.crc)
+            {
+              ESP_LOGI("tpms", "id %02x%02x%02x%02x, %.0f kPa, %.0f °C, %02x, crc: %02x", td.id[0],td.id[1],td.id[2],td.id[3], (float)to_kpa(td.pressure), (float)td.temperature - 50, td.flags, td.crc );
+              
+              if (memcmp(pretd.data, td.data, 8) == 0)
+              {
+                return;
+              }else
+              {
+                memcpy(pretd.data, td.data, 8);
+              }
+
+              //ПОДМЕНА датчиков
+              TPMS::tpms sensor1 = {.id = {0x3c,0x19,0x98,0x18}};
+              TPMS::tpms sensor2 = {.id = {0x3c,0x19,0xa9,0x24}};
+              TPMS::tpms sensor3 = {.id = {0x3c,0x19,0x98,0x71}};
+              TPMS::tpms sensor4 = {.id = {0x00,0x99,0x24,0x89}};
+              
+              char data[17];
+
+              if (memcmp(sensor1.id, td.id, 4) == 0)
+              {
+                esphome::parse_hex(id(sensor1out).state, td.id, 4);
+                id(sensor1p).publish_state((float)to_kpa(td.pressure));
+                id(sensor1t).publish_state((float)td.temperature - 50);
+                TPMS::tpms_coolray(data, td);
+                id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
+              }
+
+              if (memcmp(sensor2.id, td.id, 4) == 0)
+              {
+                esphome::parse_hex(id(sensor2out).state, td.id, 4);
+                id(sensor2p).publish_state((float)to_kpa(td.pressure));
+                id(sensor2t).publish_state((float)td.temperature - 50);
+                TPMS::tpms_coolray(data, td);
+                id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
+              }
+
+              if (memcmp(sensor3.id, td.id, 4) == 0)
+              {
+                esphome::parse_hex(id(sensor3out).state, td.id, 4);
+                id(sensor3p).publish_state((float)to_kpa(td.pressure));
+                id(sensor3t).publish_state((float)td.temperature - 50);
+                TPMS::tpms_coolray(data, td);
+                id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
+              }
+
+              if (memcmp(sensor4.id, td.id, 4) == 0)
+              {
+                esphome::parse_hex(id(sensor4out).state, td.id, 4);
+                id(sensor4p).publish_state((float)to_kpa(td.pressure));
+                id(sensor4t).publish_state((float)td.temperature - 50);
+                TPMS::tpms_coolray(data, td);
+                id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
+              }
+            }
+          }
+
+text:
+  - platform: template
+    name: "Sensor 1 out"
+    id: "sensor1out"
+    update_interval: never
+    optimistic: true
+    min_length: 8
+    max_length: 8
+    mode: text
+    restore_value: true
+    initial_value: '43baff48'
+    web_server:
+      sorting_group_id: sorting_group1
+
+  - platform: template
+    name: "Sensor 2 out"
+    id: "sensor2out"
+    update_interval: never
+    optimistic: true
+    min_length: 8
+    max_length: 8
+    mode: text
+    restore_value: true
+    initial_value: '43540bae'
+    web_server:
+      sorting_group_id: sorting_group1
+
+  - platform: template
+    name: "Sensor 3 out"
+    id: "sensor3out"
+    update_interval: never
+    optimistic: true
+    min_length: 8
+    max_length: 8
+    mode: text
+    restore_value: true
+    initial_value: '4353fe41'
+    web_server:
+      sorting_group_id: sorting_group1
+
+  - platform: template
+    name: "Sensor 4 out"
+    id: "sensor4out"
+    update_interval: never
+    optimistic: true
+    min_length: 8
+    max_length: 8
+    mode: text
+    restore_value: true
+    initial_value: '4353fe4b'
+    web_server:
+      sorting_group_id: sorting_group1
+
+number:
+  - platform: template
+    name: "Sensor 1 pressure"
+    id: "sensor1p"
+    update_interval: never
+    optimistic: true
+    min_value: 0
+    max_value: 300
+    step: 1
+    unit_of_measurement: "кПа"
+    mode: "box"
+    restore_value: true
+    initial_value: 201
+    web_server:
+      sorting_group_id: sorting_group1
+
+  - platform: template
+    name: "Sensor 2 pressure"
+    id: "sensor2p"
+    update_interval: never
+    optimistic: true
+    min_value: 0
+    max_value: 300
+    step: 1
+    unit_of_measurement: "кПа"
+    mode: "box"
+    restore_value: true
+    initial_value: 202
+    web_server:
+      sorting_group_id: sorting_group1
+
+  - platform: template
+    name: "Sensor 3 pressure"
+    id: "sensor3p"
+    update_interval: never
+    optimistic: true
+    min_value: 0
+    max_value: 300
+    step: 1
+    unit_of_measurement: "кПа"
+    mode: "box"
+    restore_value: true
+    initial_value: 203
+    web_server:
+      sorting_group_id: sorting_group1
+
+  - platform: template
+    name: "Sensor 4 pressure"
+    id: "sensor4p"
+    update_interval: never
+    optimistic: true
+    min_value: 0
+    max_value: 300
+    step: 1
+    unit_of_measurement: "кПа"
+    mode: "box"
+    restore_value: true
+    initial_value: 204
+    web_server:
+      sorting_group_id: sorting_group1
+
+  - platform: template
+    name: "Sensor 1 temperature"
+    id: "sensor1t"
+    update_interval: never
+    optimistic: true
+    min_value: -50
+    max_value: 150
+    step: 1
+    unit_of_measurement: "°C"
+    mode: "box"
+    restore_value: true
+    initial_value: -10
+    web_server:
+      sorting_group_id: sorting_group1
+
+  - platform: template
+    name: "Sensor 2 temperature"
+    id: "sensor2t"
+    update_interval: never
+    optimistic: true
+    min_value: -50
+    max_value: 150
+    step: 1
+    unit_of_measurement: "°C"
+    mode: "box"
+    restore_value: true
+    initial_value: -11
+    web_server:
+      sorting_group_id: sorting_group1
+
+  - platform: template
+    name: "Sensor 3 temperature"
+    id: "sensor3t"
+    update_interval: never
+    optimistic: true
+    min_value: -50
+    max_value: 150
+    step: 1
+    unit_of_measurement: "°C"
+    mode: "box"
+    restore_value: true
+    initial_value: -12
+    web_server:
+      sorting_group_id: sorting_group1
+
+  - platform: template
+    name: "Sensor 4 temperature"
+    id: "sensor4t"
+    update_interval: never
+    optimistic: true
+    min_value: -50
+    max_value: 150
+    step: 1
+    unit_of_measurement: "°C"
+    mode: "box"
+    restore_value: true
+    initial_value: -13
+    web_server:
+      sorting_group_id: sorting_group1
+
+button:
+  - platform: template
+    name: "TPMS Send"
+    id: send_button
+    on_press:
+      then:
+        - lambda: |-
+            char data[17];
+            TPMS::tpms td;
+            esphome::parse_hex(id(sensor1out).state, td.id, 4);
+            td.pressure = (int)id(sensor1p).state;
+            td.temperature = (int)id(sensor1t).state;
+            TPMS::tpms_coolray(data, td.id, td.pressure, td.temperature);
+            id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
+
+            esphome::parse_hex(id(sensor2out).state, td.id, 4);
+            td.pressure = (int)id(sensor2p).state;
+            td.temperature = (int)id(sensor2t).state;
+            TPMS::tpms_coolray(data, td.id, td.pressure, td.temperature);
+            id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
+
+            esphome::parse_hex(id(sensor3out).state, td.id, 4);
+            td.pressure = (int)id(sensor3p).state;
+            td.temperature = (int)id(sensor3t).state;
+            TPMS::tpms_coolray(data, td.id, td.pressure, td.temperature);
+            id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
+
+            esphome::parse_hex(id(sensor4out).state, td.id, 4);
+            td.pressure = (int)id(sensor4p).state;
+            td.temperature = (int)id(sensor4t).state;
+            TPMS::tpms_coolray(data, td.id, td.pressure, td.temperature);
+            id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
+
+script:
+  - id: send_tpms
+    mode: queued
+    parameters:
+      packet: string
+    then:
+      - logger.log:
+          format: "Send \"%s\"..."
+          args: [ 'packet.c_str()' ]
+      - delay: 50ms
+      - cc1101.send_packet:
+          data: !lambda |-
+                    std::vector<uint8_t> data;
+                    esphome::parse_hex(packet, data, 16);
+                    return data;
+      - delay: 100ms
+      - cc1101.send_packet:
+          data: !lambda |-
+                    std::vector<uint8_t> data;
+                    esphome::parse_hex(packet, data, 16);
+                    return data;
+      - delay: 100ms
+      - cc1101.send_packet:
+          data: !lambda |-
+                    std::vector<uint8_t> data;
+                    esphome::parse_hex(packet, data, 16);
+                    return data;
+      - delay: 100ms
+      - cc1101.send_packet:
+          data: !lambda |-
+                    std::vector<uint8_t> data;
+                    esphome::parse_hex(packet, data, 16);
+                    return data;
+      - delay: 500ms
+
+sensor:
+  - platform: internal_temperature
+    name: ESP Temperature
+    entity_category: "diagnostic"
+  - platform: uptime
+    name: Uptime
+    id: sys_uptime
+  - platform: wifi_signal 
+    name: WiFi RSSI
+    id: wifi_signal_db
+
+binary_sensor:
+  - platform: gpio
+    name: "Onboard Button"
+    pin:
+      number: GPIO9
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    on_press:
+      then:
+        - button.press: send_button
