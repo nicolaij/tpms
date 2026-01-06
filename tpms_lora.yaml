@@ -1,5 +1,5 @@
 esphome:
-  name: tpms_lora
+  name: tpmslora
   includes:
     tpms.h
   platformio_options:
@@ -18,10 +18,10 @@ esp32:
       
 wifi:
   networks:
-#  - ssid: !secret wifi_ssid_home1 
-#    password: !secret wifi_password_home1
-#  - ssid: !secret wifi_ssid_my_home2
-#    password: !secret wifi_password_my_home2
+  - ssid: !secret wifi_ssid_home1 
+    password: !secret wifi_password_home1
+  - ssid: !secret wifi_ssid_my_home2
+    password: !secret wifi_password_my_home2
   ap:
     ssid: "TPMS"
     password: "12345678"
@@ -63,9 +63,9 @@ sx127x:
   rst_pin: GPIO17
   dio0_pin: GPIO21
   pa_pin: BOOST
-  pa_power: 15
-  bandwidth: 200_0kHz
-  frequency: 433920kHz
+  pa_power: 4
+  bandwidth: 100_0kHz
+  frequency: 433.92MHz
   bitrate: 19200
   preamble_detect: 1
   preamble_size: 4
@@ -84,8 +84,17 @@ sx127x:
       - lambda: |-
           ESP_LOGD("tpms", "packet %s", format_hex(x).c_str());
           TPMS::tpms td;
+          static TPMS::tpms pretd;
           if (TPMS::demanchester((char*)td.data, (const char *)x.data(), 8 * 8) == 8)
           {
+            if (memcmp(pretd.data, td.data, 8) == 0)
+            {
+              return;
+            }else
+            {
+              memcpy(pretd.data, td.data, 8);
+            }
+            
             if (TPMS::Crc8Block(0,td.data, 7) == td.crc)
             {
               ESP_LOGI("tpms", "id %02x%02x%02x%02x, %.0f kPa, %.0f °C, %02x, crc: %02x", td.id[0],td.id[1],td.id[2],td.id[3], (float)to_kpa(td.pressure), (float)td.temperature - 50, td.flags, td.crc );
@@ -96,18 +105,15 @@ sx127x:
               TPMS::tpms sensor3 = {.id = {0x3c,0x19,0x98,0x71}};
               TPMS::tpms sensor4 = {.id = {0x00,0x99,0x24,0x89}};
               
-              char data1[17];
-              char data2[17];
-              char data3[17];
-              char data4[17];
+              char data[17];
               
               if (memcmp(sensor1.id, td.id, 4) == 0)
               {
                 esphome::parse_hex(id(sensor1out).state, td.id, 4);
                 id(sensor1p).publish_state((float)to_kpa(td.pressure));
                 id(sensor1t).publish_state((float)td.temperature - 50);
-                TPMS::tpms_coolray(data1, td);
-                id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data1, 16));
+                TPMS::tpms_coolray(data, td);
+                id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
               }
 
               if (memcmp(sensor2.id, td.id, 4) == 0)
@@ -115,8 +121,8 @@ sx127x:
                 esphome::parse_hex(id(sensor2out).state, td.id, 4);
                 id(sensor2p).publish_state((float)to_kpa(td.pressure));
                 id(sensor2t).publish_state((float)td.temperature - 50);
-                TPMS::tpms_coolray(data2, td);
-                id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data2, 16));
+                TPMS::tpms_coolray(data, td);
+                id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
               }
 
               if (memcmp(sensor3.id, td.id, 4) == 0)
@@ -124,8 +130,8 @@ sx127x:
                 esphome::parse_hex(id(sensor3out).state, td.id, 4);
                 id(sensor3p).publish_state((float)to_kpa(td.pressure));
                 id(sensor3t).publish_state((float)td.temperature - 50);
-                TPMS::tpms_coolray(data2, td);
-                id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data3, 16));
+                TPMS::tpms_coolray(data, td);
+                id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
               }
 
               if (memcmp(sensor4.id, td.id, 4) == 0)
@@ -133,8 +139,8 @@ sx127x:
                 esphome::parse_hex(id(sensor4out).state, td.id, 4);
                 id(sensor4p).publish_state((float)to_kpa(td.pressure));
                 id(sensor4t).publish_state((float)td.temperature - 50);
-                TPMS::tpms_coolray(data4, td);
-                id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data4, 16));
+                TPMS::tpms_coolray(data, td);
+                id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
               }
             }
           }
@@ -320,34 +326,31 @@ button:
     on_press:
       then:
         - lambda: |-
-            char data1[17];
-            char data2[17];
-            char data3[17];
-            char data4[17];
+            char data[17];
             TPMS::tpms td;
             esphome::parse_hex(id(sensor1out).state, td.id, 4);
             td.pressure = (int)id(sensor1p).state;
             td.temperature = (int)id(sensor1t).state;
-            TPMS::tpms_coolray(data1, td.id, td.pressure, td.temperature);
-            id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data1, 16));
+            TPMS::tpms_coolray(data, td.id, td.pressure, td.temperature);
+            id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
 
             esphome::parse_hex(id(sensor2out).state, td.id, 4);
             td.pressure = (int)id(sensor2p).state;
             td.temperature = (int)id(sensor2t).state;
-            TPMS::tpms_coolray(data2, td.id, td.pressure, td.temperature);
-            id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data2, 16));
+            TPMS::tpms_coolray(data, td.id, td.pressure, td.temperature);
+            id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
 
             esphome::parse_hex(id(sensor3out).state, td.id, 4);
             td.pressure = (int)id(sensor3p).state;
             td.temperature = (int)id(sensor3t).state;
-            TPMS::tpms_coolray(data3, td.id, td.pressure, td.temperature);
-            id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data3, 16));
+            TPMS::tpms_coolray(data, td.id, td.pressure, td.temperature);
+            id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
 
             esphome::parse_hex(id(sensor4out).state, td.id, 4);
             td.pressure = (int)id(sensor4p).state;
             td.temperature = (int)id(sensor4t).state;
-            TPMS::tpms_coolray(data4, td.id, td.pressure, td.temperature);
-            id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data4, 16));
+            TPMS::tpms_coolray(data, td.id, td.pressure, td.temperature);
+            id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
 
 script:
   - id: send_tpms
