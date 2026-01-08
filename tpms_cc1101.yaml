@@ -57,7 +57,7 @@ cc1101:
   cs_pin: GPIO0
   frequency: 433.92MHz
   output_power: 2
-  data_rate: 5MHz
+  data_rate: 8MHz
   gdo0_pin: GPIO7  # Must match GDO0
   modulation_type: 2-FSK
   fsk_deviation: 40kHz
