@@ -10,6 +10,7 @@ tpms_lora.yaml - Config for esp32-s2 mini and Ra-02 433MHz
 <img width="402" height="329" alt="изображение" src="https://github.com/user-attachments/assets/2c198790-8e65-4fb3-b71c-cc33089f587c" />  
 
 tpms_cc1101.yaml- Config for esp32-c3 and CC1101 433MHz
+<img src="https://github.com/user-attachments/assets/8c4bd989-fe88-4d56-a416-d26217f5e947" />
 
 [More...](https://github.com/nicolaij/tpms/wiki)
 
