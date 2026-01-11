@@ -1,4 +1,4 @@
-# TPMS Geely Coolray (SX11) hack
+# TPMS (Tire Pressure Monitoring System) Geely Coolray (SX11) hack
 
 This esphome project generates a radio signal that simulates tire pressure sensors.
 
