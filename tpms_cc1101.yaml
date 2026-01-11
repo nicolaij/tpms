@@ -3,22 +3,17 @@ esphome:
   includes:
     tpms.h
   platformio_options:
-    board_build.flash_mode: qio
     board_build.f_cpu: 80000000L
-    board_build.f_flash: 80000000L
 
 esp32:
   board: esp32-c3-devkitm-1
   framework:
     type: esp-idf
     sdkconfig_options:
-      CONFIG_ESP_BROWNOUT_DET_LVL_SEL_4: y #for c3 2.92V
       CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_80: y
-      CONFIG_ESPTOOLPY_FLASHFREQ_80M: y
-      CONFIG_FLASHMODE_QIO: y
 
 wifi:
-  networks:
+#  networks:
 #  - ssid: !secret wifi_ssid_home1 
 #    password: !secret wifi_password_home1
 #  - ssid: !secret wifi_ssid_my_home2
@@ -39,6 +34,12 @@ api:
 ota:
   platform: esphome
 
+globals:
+  - id: lastdata
+    type: int
+    restore_value: no
+    initial_value: '-1'
+
 web_server:
   port: 80
   local: true
@@ -56,91 +57,95 @@ spi:
 cc1101:
   cs_pin: GPIO0
   frequency: 433.92MHz
-  output_power: 2
-  data_rate: 8MHz
+  output_power: 0
+  data_rate: 5MHz
   gdo0_pin: GPIO7  # Must match GDO0
   modulation_type: 2-FSK
   fsk_deviation: 40kHz
-  filter_bandwidth: 125kHz
+  filter_bandwidth: 200kHz
   symbol_rate: 19200
   packet_mode: true
-  manchester: false
+  manchester: false #Manchester encoding encodes all data including the preamble and sync bytes!
   crc_enable: false
-  sync0: 0x56
+  sync_mode: 16/16
   sync1: 0x55
-  num_preamble: 2 #(4 bytes)
+  sync0: 0x56
+  num_preamble: 2
   packet_length: 16
   carrier_sense_above_threshold: true
   carrier_sense_rel_thr: +6dB
   on_packet:
     then:
       - lambda: |-
-          ESP_LOGD("cc1101", "packet %s rssi %.1f dBm lqi %u", format_hex(x).c_str(), rssi, lqi);
+          ESP_LOGD("cc1101", "packet %s, rssi %.1f dBm, lqi %u", format_hex(x).c_str(), rssi, lqi);
           TPMS::tpms td;
           static TPMS::tpms pretd;
-          if (TPMS::demanchester((char*)td.data, (const char *)x.data(), 8 * 8) == 8)
+
+          if (TPMS::decode_manchester_ge_thomas((char*)td.data, (const char*)x.data(), 8) != 0 )
+            return;
+
+          if (memcmp(pretd.data, td.data, 7) == 0) //повтор
+            return;
+
+          if (TPMS::Crc8Block(0, td.data, 7) == td.crc)
           {
-            if (TPMS::Crc8Block(0,td.data, 7) == td.crc)
+            id(lastdata)++;
+            ESP_LOGI("tpms", "%3d id %02X%02X%02X%02X, %.0f kPa, %.0f °C, %02X, crc: %02X", id(lastdata), td.id[0],td.id[1],td.id[2],td.id[3], (float)to_kpa(td.pressure), (float)td.temperature - 50, td.flags, td.crc );
+            memcpy(pretd.data, td.data, 8);
+            return;
+            
+            //ПОДМЕНА датчиков
+            char data[16];
+            uint8_t sensorid[4];
+
+            esphome::parse_hex(id(sensor1in).state, sensorid, 4);            
+            if (memcmp(sensorid, td.id, 4) == 0)
             {
-              ESP_LOGI("tpms", "id %02x%02x%02x%02x, %.0f kPa, %.0f °C, %02x, crc: %02x", td.id[0],td.id[1],td.id[2],td.id[3], (float)to_kpa(td.pressure), (float)td.temperature - 50, td.flags, td.crc );
-              
-              if (memcmp(pretd.data, td.data, 8) == 0)
-              {
-                return;
-              }else
-              {
-                memcpy(pretd.data, td.data, 8);
-              }
+              esphome::parse_hex(id(sensor1out).state, td.id, 4);
+              id(sensor1p).publish_state((float)to_kpa(td.pressure));
+              id(sensor1t).publish_state((float)td.temperature - 50);
+              td.crc = TPMS::Crc8Block(0, td.data, 7);
+              TPMS::encode_manchester_ge_thomas(data, (const char*) td.data, 8);
+              id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
+            }
 
-              //ПОДМЕНА датчиков
-              TPMS::tpms sensor1 = {.id = {0x3c,0x19,0x98,0x18}};
-              TPMS::tpms sensor2 = {.id = {0x3c,0x19,0xa9,0x24}};
-              TPMS::tpms sensor3 = {.id = {0x3c,0x19,0x98,0x71}};
-              TPMS::tpms sensor4 = {.id = {0x00,0x99,0x24,0x89}};
-              
-              char data[17];
+            esphome::parse_hex(id(sensor2in).state, sensorid, 4);            
+            if (memcmp(sensorid, td.id, 4) == 0)
+            {
+              esphome::parse_hex(id(sensor2out).state, td.id, 4);
+              id(sensor2p).publish_state((float)to_kpa(td.pressure));
+              id(sensor2t).publish_state((float)td.temperature - 50);
+              td.crc = TPMS::Crc8Block(0, td.data, 7);
+              TPMS::encode_manchester_ge_thomas(data, (const char*) td.data, 8);
+              id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
+            }
 
-              if (memcmp(sensor1.id, td.id, 4) == 0)
-              {
-                esphome::parse_hex(id(sensor1out).state, td.id, 4);
-                id(sensor1p).publish_state((float)to_kpa(td.pressure));
-                id(sensor1t).publish_state((float)td.temperature - 50);
-                TPMS::tpms_coolray(data, td);
-                id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
-              }
+            esphome::parse_hex(id(sensor3in).state, sensorid, 4);            
+            if (memcmp(sensorid, td.id, 4) == 0)
+            {
+              esphome::parse_hex(id(sensor3out).state, td.id, 4);
+              id(sensor3p).publish_state((float)to_kpa(td.pressure));
+              id(sensor3t).publish_state((float)td.temperature - 50);
+              td.crc = TPMS::Crc8Block(0, td.data, 7);
+              TPMS::encode_manchester_ge_thomas(data, (const char*) td.data, 8);
+              id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
+            }
 
-              if (memcmp(sensor2.id, td.id, 4) == 0)
-              {
-                esphome::parse_hex(id(sensor2out).state, td.id, 4);
-                id(sensor2p).publish_state((float)to_kpa(td.pressure));
-                id(sensor2t).publish_state((float)td.temperature - 50);
-                TPMS::tpms_coolray(data, td);
-                id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
-              }
-
-              if (memcmp(sensor3.id, td.id, 4) == 0)
-              {
-                esphome::parse_hex(id(sensor3out).state, td.id, 4);
-                id(sensor3p).publish_state((float)to_kpa(td.pressure));
-                id(sensor3t).publish_state((float)td.temperature - 50);
-                TPMS::tpms_coolray(data, td);
-                id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
-              }
-
-              if (memcmp(sensor4.id, td.id, 4) == 0)
-              {
-                esphome::parse_hex(id(sensor4out).state, td.id, 4);
-                id(sensor4p).publish_state((float)to_kpa(td.pressure));
-                id(sensor4t).publish_state((float)td.temperature - 50);
-                TPMS::tpms_coolray(data, td);
-                id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
-              }
+            esphome::parse_hex(id(sensor4in).state, sensorid, 4);            
+            if (memcmp(sensorid, td.id, 4) == 0)
+            {
+              esphome::parse_hex(id(sensor4out).state, td.id, 4);
+              id(sensor4p).publish_state((float)to_kpa(td.pressure));
+              id(sensor4t).publish_state((float)td.temperature - 50);
+              td.crc = TPMS::Crc8Block(0, td.data, 7);
+              TPMS::encode_manchester_ge_thomas(data, (const char*) td.data, 8);
+              id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
             }
           }
 
 text:
   - platform: template
-    name: "Sensor 1 out"
+    name: "Sensor 1 car"
     id: "sensor1out"
     update_interval: never
     optimistic: true
@@ -151,9 +156,24 @@ text:
     initial_value: '43baff48'
     web_server:
       sorting_group_id: sorting_group1
+      sorting_weight: 10
 
   - platform: template
-    name: "Sensor 2 out"
+    name: "Sensor 1 tire"
+    id: "sensor1in"
+    update_interval: never
+    optimistic: true
+    min_length: 0
+    max_length: 8
+    mode: text
+    restore_value: true
+    initial_value: '3c199818'
+    web_server:
+      sorting_group_id: sorting_group1
+      sorting_weight: 11
+
+  - platform: template
+    name: "Sensor 2 car"
     id: "sensor2out"
     update_interval: never
     optimistic: true
@@ -164,9 +184,24 @@ text:
     initial_value: '43540bae'
     web_server:
       sorting_group_id: sorting_group1
+      sorting_weight: 20
 
   - platform: template
-    name: "Sensor 3 out"
+    name: "Sensor 2 tire"
+    id: "sensor2in"
+    update_interval: never
+    optimistic: true
+    min_length: 0
+    max_length: 8
+    mode: text
+    restore_value: true
+    initial_value: '3c19a924'
+    web_server:
+      sorting_group_id: sorting_group1
+      sorting_weight: 21
+
+  - platform: template
+    name: "Sensor 3 car"
     id: "sensor3out"
     update_interval: never
     optimistic: true
@@ -177,9 +212,24 @@ text:
     initial_value: '4353fe41'
     web_server:
       sorting_group_id: sorting_group1
+      sorting_weight: 30
 
   - platform: template
-    name: "Sensor 4 out"
+    name: "Sensor 3 tire"
+    id: "sensor3in"
+    update_interval: never
+    optimistic: true
+    min_length: 0
+    max_length: 8
+    mode: text
+    restore_value: true
+    initial_value: '3c199871'
+    web_server:
+      sorting_group_id: sorting_group1
+      sorting_weight: 31
+
+  - platform: template
+    name: "Sensor 4 car"
     id: "sensor4out"
     update_interval: never
     optimistic: true
@@ -190,6 +240,21 @@ text:
     initial_value: '4353fe4b'
     web_server:
       sorting_group_id: sorting_group1
+      sorting_weight: 40
+
+  - platform: template
+    name: "Sensor 4 tire"
+    id: "sensor4in"
+    update_interval: never
+    optimistic: true
+    min_length: 0
+    max_length: 8
+    mode: text
+    restore_value: true
+    initial_value: '00992489'
+    web_server:
+      sorting_group_id: sorting_group1
+      sorting_weight: 41
 
 number:
   - platform: template
@@ -206,6 +271,7 @@ number:
     initial_value: 201
     web_server:
       sorting_group_id: sorting_group1
+      sorting_weight: 12
 
   - platform: template
     name: "Sensor 2 pressure"
@@ -221,6 +287,7 @@ number:
     initial_value: 202
     web_server:
       sorting_group_id: sorting_group1
+      sorting_weight: 22
 
   - platform: template
     name: "Sensor 3 pressure"
@@ -236,6 +303,7 @@ number:
     initial_value: 203
     web_server:
       sorting_group_id: sorting_group1
+      sorting_weight: 32
 
   - platform: template
     name: "Sensor 4 pressure"
@@ -251,6 +319,7 @@ number:
     initial_value: 204
     web_server:
       sorting_group_id: sorting_group1
+      sorting_weight: 42
 
   - platform: template
     name: "Sensor 1 temperature"
@@ -266,6 +335,7 @@ number:
     initial_value: -10
     web_server:
       sorting_group_id: sorting_group1
+      sorting_weight: 13
 
   - platform: template
     name: "Sensor 2 temperature"
@@ -281,6 +351,7 @@ number:
     initial_value: -11
     web_server:
       sorting_group_id: sorting_group1
+      sorting_weight: 23
 
   - platform: template
     name: "Sensor 3 temperature"
@@ -296,6 +367,7 @@ number:
     initial_value: -12
     web_server:
       sorting_group_id: sorting_group1
+      sorting_weight: 33
 
   - platform: template
     name: "Sensor 4 temperature"
@@ -311,6 +383,7 @@ number:
     initial_value: -13
     web_server:
       sorting_group_id: sorting_group1
+      sorting_weight: 43
 
 button:
   - platform: template
@@ -319,30 +392,26 @@ button:
     on_press:
       then:
         - lambda: |-
-            char data[17];
             TPMS::tpms td;
+            char data[16];
             esphome::parse_hex(id(sensor1out).state, td.id, 4);
-            td.pressure = (int)id(sensor1p).state;
-            td.temperature = (int)id(sensor1t).state;
-            TPMS::tpms_coolray(data, td.id, td.pressure, td.temperature);
+            TPMS::tpms_coolray(&td, td.id, (int)id(sensor1p).state, (int)id(sensor1t).state);
+            TPMS::encode_manchester_ge_thomas(data, (const char*) td.data, 8);
             id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
 
             esphome::parse_hex(id(sensor2out).state, td.id, 4);
-            td.pressure = (int)id(sensor2p).state;
-            td.temperature = (int)id(sensor2t).state;
-            TPMS::tpms_coolray(data, td.id, td.pressure, td.temperature);
+            TPMS::tpms_coolray(&td, td.id, (int)id(sensor2p).state, (int)id(sensor2t).state);
+            TPMS::encode_manchester_ge_thomas(data, (const char*) td.data, 8);
             id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
 
             esphome::parse_hex(id(sensor3out).state, td.id, 4);
-            td.pressure = (int)id(sensor3p).state;
-            td.temperature = (int)id(sensor3t).state;
-            TPMS::tpms_coolray(data, td.id, td.pressure, td.temperature);
+            TPMS::tpms_coolray(&td, td.id, (int)id(sensor3p).state, (int)id(sensor3t).state);
+            TPMS::encode_manchester_ge_thomas(data, (const char*) td.data, 8);
             id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
 
             esphome::parse_hex(id(sensor4out).state, td.id, 4);
-            td.pressure = (int)id(sensor4p).state;
-            td.temperature = (int)id(sensor4t).state;
-            TPMS::tpms_coolray(data, td.id, td.pressure, td.temperature);
+            TPMS::tpms_coolray(&td, td.id, (int)id(sensor4p).state, (int)id(sensor4t).state);
+            TPMS::encode_manchester_ge_thomas(data, (const char*) td.data, 8);
             id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
 
 script:
@@ -380,6 +449,41 @@ script:
                     return data;
       - delay: 500ms
 
+interval: 
+  - interval: 5min 
+    then:
+      - lambda: |-
+          TPMS::tpms td;
+          char data[16];
+          if (id(sensor1in).state.length() < 8)
+          {
+            esphome::parse_hex(id(sensor1out).state, td.id, 4);
+            TPMS::tpms_coolray(&td, td.id, (int)id(sensor1p).state, (int)id(sensor1t).state);
+            TPMS::encode_manchester_ge_thomas(data, (const char*) td.data, 8);
+            id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
+          }
+          if (id(sensor2in).state.length() < 8)
+          {
+            esphome::parse_hex(id(sensor2out).state, td.id, 4);
+            TPMS::tpms_coolray(&td, td.id, (int)id(sensor2p).state, (int)id(sensor2t).state);
+            TPMS::encode_manchester_ge_thomas(data, (const char*) td.data, 8);
+            id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
+          }
+          if (id(sensor3in).state.length() < 8)
+          {
+            esphome::parse_hex(id(sensor3out).state, td.id, 4);
+            TPMS::tpms_coolray(&td, td.id, (int)id(sensor3p).state, (int)id(sensor3t).state);
+            TPMS::encode_manchester_ge_thomas(data, (const char*) td.data, 8);
+            id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
+          }
+          if (id(sensor4in).state.length() < 8)
+          {
+            esphome::parse_hex(id(sensor4out).state, td.id, 4);
+            TPMS::tpms_coolray(&td, td.id, (int)id(sensor4p).state, (int)id(sensor4t).state);
+            TPMS::encode_manchester_ge_thomas(data, (const char*) td.data, 8);
+            id(send_tpms)->execute(esphome::format_hex((const uint8_t *)data, 16));
+          }
+
 sensor:
   - platform: internal_temperature
     name: ESP Temperature
@@ -387,9 +491,9 @@ sensor:
   - platform: uptime
     name: Uptime
     id: sys_uptime
-  - platform: wifi_signal 
-    name: WiFi RSSI
-    id: wifi_signal_db
+#  - platform: wifi_signal 
+#    name: WiFi RSSI
+#    id: wifi_signal_db
 
 binary_sensor:
   - platform: gpio
